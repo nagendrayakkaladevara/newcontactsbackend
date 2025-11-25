@@ -1,0 +1,6 @@
+name,phone,email,bloodGroup,workingDivision,designation,city
+John Doe,+1234567890,john@example.com,O+,Engineering,Senior Developer,New York
+Jane Smith,+0987654321,jane@example.com,A-,Marketing,Manager,Los Angeles
+Bob Johnson,+1122334455,bob@example.com,B+,Sales,Executive,Chicago
+Alice Williams,+5566778899,alice@example.com,AB-,HR,Director,San Francisco
+
