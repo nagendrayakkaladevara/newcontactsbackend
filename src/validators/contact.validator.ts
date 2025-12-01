@@ -20,7 +20,7 @@ export const contactIdSchema = z.object({
   id: z.string().uuid('Invalid contact ID')
 });
 
-// CSV row validation schema
+// CSV row validation schema - accepts flexible field names
 export const csvContactSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   phone: z.string()
@@ -29,7 +29,7 @@ export const csvContactSchema = z.object({
   bloodGroup: z.string().optional().or(z.literal('')),
   lobby: z.string().optional().or(z.literal('')),
   designation: z.string().optional().or(z.literal(''))
-});
+}).passthrough(); // Allow extra fields to be ignored (like 'sno')
 
 // Query parameters validation
 export const paginationSchema = z.object({

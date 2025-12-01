@@ -6,9 +6,11 @@ A high-performance, scalable backend API for managing phonebook contacts with bu
 
 - ✅ **CRUD Operations**: Create, read, update, and delete contacts
 - ✅ **Bulk Operations**: Upload via CSV file or JSON array (up to 1000 contacts per request)
-- ✅ **Advanced Search**: Search by name (partial, case-insensitive), phone (exact match), blood group, and lobby
-- ✅ **Blood Group Management**: Get all unique blood groups and filter contacts by blood group
-- ✅ **Lobby Management**: Get all unique lobbies and filter contacts by lobby
+- ✅ **Advanced Search**: Search by name (partial, case-insensitive), phone (exact match)
+- ✅ **Unified Filtering**: Filter contacts by bloodGroup, lobby, and/or designation in a single endpoint
+- ✅ **Blood Group Management**: Get all unique blood groups
+- ✅ **Lobby Management**: Get all unique lobbies
+- ✅ **Designation Management**: Get all unique designations
 - ✅ **Analytics Dashboard**: Comprehensive analytics endpoints for data visualization and insights
 - ✅ **Visit Tracking**: Thread-safe visitor count tracking with atomic operations
 - ✅ **Pagination**: Efficient pagination for large datasets
@@ -459,15 +461,97 @@ GET /api/contacts/blood-groups
 - Blood groups are normalized to uppercase and sorted alphabetically
 - Empty or null blood groups are excluded
 
-#### Get Contacts by Blood Group
+#### Filter Contacts (Unified Filter Endpoint - Recommended)
+```http
+GET /api/contacts/filter?bloodGroup=A+&lobby=X&designation=Manager&page=1&limit=50
+```
+
+**Query Parameters:**
+- `bloodGroup` (optional): Single blood group or comma-separated list (e.g., `A+` or `A+,B+,O+`)
+- `lobby` (optional): Single lobby or comma-separated list (e.g., `Engineering` or `Engineering,Sales`)
+- `designation` (optional): Single designation or comma-separated list (e.g., `Manager` or `Manager,Developer`)
+- `page` (optional): Page number (default: 1)
+- `limit` (optional): Records per page (default: 50, max: 100)
+
+**Note:** At least one filter (`bloodGroup`, `lobby`, or `designation`) must be provided.
+
+**Examples:**
+
+**Single Filter:**
+```http
+GET /api/contacts/filter?bloodGroup=A+
+GET /api/contacts/filter?lobby=X
+GET /api/contacts/filter?designation=Manager
+```
+
+**Multiple Filters (AND logic):**
+```http
+GET /api/contacts/filter?bloodGroup=A+&lobby=X
+GET /api/contacts/filter?bloodGroup=A+,B+&lobby=X,Y&designation=Manager
+GET /api/contacts/filter?lobby=X&designation=Manager,Developer
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "John Doe",
+      "phone": "+1234567890",
+      "bloodGroup": "A+",
+      "lobby": "Engineering",
+      "designation": "Manager",
+      "createdAt": "2025-01-25T12:00:00.000Z",
+      "updatedAt": "2025-01-25T12:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total": 15,
+    "totalPages": 1
+  }
+}
+```
+
+**Error Response (400 Bad Request):**
+```json
+{
+  "success": false,
+  "message": "At least one filter (bloodGroup, lobby, or designation) is required"
+}
+```
+
+**Notes:**
+- All filters use AND logic: contact must match all specified filters
+- Within each filter, values use OR logic (e.g., `bloodGroup=A+,B+` matches "A+" OR "B+")
+- Case-insensitive matching for all filters
+- Results are sorted by name
+
+**Filter Logic Examples:**
+- `bloodGroup=A+&lobby=X` → Contacts with blood group "A+" AND in lobby "X"
+- `bloodGroup=A+,B+&lobby=X,Y` → Contacts with blood group "A+" OR "B+" AND in lobby "X" OR "Y"
+- `lobby=X&designation=Manager,Developer` → Contacts in lobby "X" AND with designation "Manager" OR "Developer"
+- `bloodGroup=A+&lobby=X&designation=Manager` → Contacts with blood group "A+" AND in lobby "X" AND with designation "Manager"
+
+---
+
+#### Get Contacts by Blood Group and/or Lobby (Deprecated)
 ```http
 GET /api/contacts/by-blood-group?bloodGroup=A+&page=1&limit=50
 ```
 
+**⚠️ Deprecated:** This endpoint is deprecated. Please use `GET /api/contacts/filter` instead.
+
 **Query Parameters:**
-- `bloodGroup` (required): Single blood group or comma-separated list (e.g., `A+` or `A+,B+,O+`)
+- `bloodGroup` (optional): Single blood group or comma-separated list (e.g., `A+` or `A+,B+,O+`)
+- `lobby` (optional): Single lobby or comma-separated list (e.g., `Engineering` or `Engineering,Sales`)
 - `page` (optional): Page number (default: 1)
 - `limit` (optional): Records per page (default: 50, max: 100)
+
+**Note:** At least one of `bloodGroup` or `lobby` must be provided.
 
 **Single Blood Group:**
 ```http
@@ -477,6 +561,21 @@ GET /api/contacts/by-blood-group?bloodGroup=A+
 **Multiple Blood Groups:**
 ```http
 GET /api/contacts/by-blood-group?bloodGroup=A+,B+,O+
+```
+
+**Blood Group with Lobby Filter:**
+```http
+GET /api/contacts/by-blood-group?bloodGroup=A+&lobby=X
+```
+
+**Multiple Blood Groups with Multiple Lobbies:**
+```http
+GET /api/contacts/by-blood-group?bloodGroup=A+,B+&lobby=X,Y
+```
+
+**Only Lobby (no bloodGroup):**
+```http
+GET /api/contacts/by-blood-group?lobby=X
 ```
 
 **Response (200 OK):**
@@ -508,14 +607,22 @@ GET /api/contacts/by-blood-group?bloodGroup=A+,B+,O+
 ```json
 {
   "success": false,
-  "message": "Blood group is required"
+  "message": "At least one of bloodGroup or lobby is required"
 }
 ```
 
 **Notes:**
 - Case-insensitive matching (e.g., "A+", "a+", "A+" all match)
 - Supports single or multiple blood groups (comma-separated)
+- Supports single or multiple lobbies (comma-separated)
+- When both are provided: returns contacts matching bloodGroup AND lobby
 - Results are sorted by name
+
+**Filter Logic:**
+- `bloodGroup=A+&lobby=X` → Returns contacts with blood group "A+" in lobby "X"
+- `bloodGroup=A+,B+&lobby=X,Y` → Returns contacts with blood group "A+" OR "B+" in lobby "X" OR "Y"
+- `bloodGroup=A+` → Returns all contacts with blood group "A+" (any lobby)
+- `lobby=X` → Returns all contacts in lobby "X" (any blood group)
 
 #### Get All Lobbies
 ```http
@@ -548,15 +655,50 @@ GET /api/contacts/lobbies
 - Empty or null lobbies are excluded
 - Preserves original case of first occurrence
 
-#### Get Contacts by Lobby
+#### Get All Designations
+```http
+GET /api/contacts/designations
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": [
+    "Analyst",
+    "Associate",
+    "Consultant",
+    "Director",
+    "Executive",
+    "Manager",
+    "Senior Developer",
+    "Software Engineer",
+    "Specialist",
+    "Team Lead"
+  ]
+}
+```
+
+**Notes:**
+- Returns all unique designations from contacts (case-insensitive)
+- Designations are deduplicated case-insensitively and sorted alphabetically
+- Empty or null designations are excluded
+- Preserves original case of first occurrence
+
+#### Get Contacts by Lobby and/or Designation (Deprecated)
 ```http
 GET /api/contacts/by-lobby?lobby=Engineering&page=1&limit=50
 ```
 
+**⚠️ Deprecated:** This endpoint is deprecated. Please use `GET /api/contacts/filter` instead.
+
 **Query Parameters:**
-- `lobby` (required): Single lobby or comma-separated list (e.g., `Engineering` or `Engineering,Sales,Marketing`)
+- `lobby` (optional): Single lobby or comma-separated list (e.g., `Engineering` or `Engineering,Sales,Marketing`)
+- `designation` (optional): Single designation or comma-separated list (e.g., `Manager` or `Manager,Developer,Designer`)
 - `page` (optional): Page number (default: 1)
 - `limit` (optional): Records per page (default: 50, max: 100)
+
+**Note:** At least one of `lobby` or `designation` must be provided.
 
 **Single Lobby:**
 ```http
@@ -566,6 +708,26 @@ GET /api/contacts/by-lobby?lobby=Engineering
 **Multiple Lobbies:**
 ```http
 GET /api/contacts/by-lobby?lobby=Engineering,Sales,Marketing
+```
+
+**Lobby with Designation Filter:**
+```http
+GET /api/contacts/by-lobby?lobby=X&designation=x,y
+```
+
+**Multiple Lobbies with Multiple Designations:**
+```http
+GET /api/contacts/by-lobby?lobby=A,B&designation=x,z
+```
+
+**Only Designation (no lobby):**
+```http
+GET /api/contacts/by-lobby?designation=x,y
+```
+
+**Single Designation:**
+```http
+GET /api/contacts/by-lobby?designation=Manager
 ```
 
 **Response (200 OK):**
@@ -597,14 +759,23 @@ GET /api/contacts/by-lobby?lobby=Engineering,Sales,Marketing
 ```json
 {
   "success": false,
-  "message": "Lobby is required"
+  "message": "At least one of lobby or designation is required"
 }
 ```
 
 **Notes:**
 - Case-insensitive matching (e.g., "Engineering", "engineering", "ENGINEERING" all match)
 - Supports single or multiple lobbies (comma-separated)
+- Supports single or multiple designations (comma-separated)
+- When both are provided: returns contacts matching lobby AND designation
 - Results are sorted by name
+
+**Filter Logic:**
+- `lobby=X&designation=x,y` → Returns contacts in lobby "X" with designation "x" OR "y"
+- `lobby=A,B&designation=x,z` → Returns contacts in lobby "A" OR "B" with designation "x" OR "z"
+- `lobby=C` → Returns all contacts in lobby "C" (any designation)
+- `designation=x,y` → Returns all contacts with designation "x" OR "y" (any lobby)
+- `designation=Manager` → Returns all contacts with designation "Manager" (any lobby)
 
 ### Analytics Endpoints
 
@@ -969,13 +1140,17 @@ fetch('/api/analytics/visits')
 
 ### Bulk Operations
 
-#### Bulk Upload CSV
+#### Bulk Upload CSV/Excel
 ```http
 POST /api/contacts/bulk-upload?replaceAll=false
 Content-Type: multipart/form-data
 
-file: [CSV file]
+file: [CSV or Excel file (.csv, .xlsx, .xls)]
 ```
+
+**Supported File Formats:**
+- CSV files (`.csv`)
+- Excel files (`.xlsx`, `.xls`)
 
 **CSV Format:**
 ```csv
@@ -983,6 +1158,20 @@ name,phone,bloodGroup,lobby,designation
 John Doe,+1234567890,O+,Engineering,Senior Developer
 Jane Smith,+0987654321,A-,Marketing,Manager
 ```
+
+**Excel Format:**
+The API accepts Excel files with the same column structure. Column names are case-insensitive and support variations:
+- `Name` or `name` → name
+- `Phone` or `phone` → phone (supports scientific notation like `8.98E+09`)
+- `bloodgroup`, `bloodGroup`, or `blood_group` → bloodGroup
+- `lobby`, `workingDivision`, `working_division`, or `division` → lobby
+- `designation` → designation
+- `sno` → ignored (serial number column)
+
+**Notes:**
+- Phone numbers in scientific notation (e.g., `8.98E+09`) are automatically converted to proper format
+- Column names are case-insensitive and support common variations
+- Extra columns (like `sno`) are automatically ignored
 
 **Query Parameters:**
 - `replaceAll=true`: Replace all existing contacts with the new upload

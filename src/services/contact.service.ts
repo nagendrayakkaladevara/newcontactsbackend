@@ -208,35 +208,81 @@ export class ContactService {
   }
 
   /**
-   * Get contacts by blood group(s) with pagination
+   * Get contacts by blood group(s) and/or lobby(s) with pagination
+   * @param bloodGroups - Optional: Single blood group or array of blood groups
+   * @param page - Page number
+   * @param limit - Records per page
+   * @param lobbies - Optional: Single lobby or array of lobbies to filter by
    */
   async getContactsByBloodGroup(
-    bloodGroups: string | string[],
+    bloodGroups?: string | string[],
     page: number = 1,
-    limit: number = 50
+    limit: number = 50,
+    lobbies?: string | string[]
   ): Promise<PaginatedResult<Contact>> {
-    // Normalize blood groups to array and uppercase
-    const bloodGroupArray = Array.isArray(bloodGroups) ? bloodGroups : [bloodGroups];
-    const normalizedBloodGroups = bloodGroupArray
-      .map(bg => bg.trim().toUpperCase())
-      .filter(bg => bg !== '');
+    // Normalize blood groups to array (if provided)
+    let normalizedBloodGroups: string[] | undefined;
+    if (bloodGroups) {
+      const bloodGroupArray = Array.isArray(bloodGroups) ? bloodGroups : [bloodGroups];
+      normalizedBloodGroups = bloodGroupArray
+        .map(bg => bg.trim().toUpperCase())
+        .filter(bg => bg !== '');
+      
+      if (normalizedBloodGroups.length === 0) {
+        normalizedBloodGroups = undefined;
+      }
+    }
 
-    if (normalizedBloodGroups.length === 0) {
-      throw new AppError('At least one blood group is required', 400, 'MISSING_BLOOD_GROUP');
+    // Normalize lobbies to array (if provided)
+    let normalizedLobbies: string[] | undefined;
+    if (lobbies) {
+      const lobbyArray = Array.isArray(lobbies) ? lobbies : [lobbies];
+      normalizedLobbies = lobbyArray
+        .map(lobby => lobby.trim())
+        .filter(lobby => lobby !== '');
+      
+      if (normalizedLobbies.length === 0) {
+        normalizedLobbies = undefined;
+      }
+    }
+
+    // At least one filter must be provided
+    if (!normalizedBloodGroups && !normalizedLobbies) {
+      throw new AppError('At least one of bloodGroup or lobby is required', 400, 'MISSING_FILTER');
     }
 
     const skip = (page - 1) * limit;
 
-    // Build where clause - we normalize to uppercase, so we can use regular 'in'
-    // But to handle case-insensitive matching in DB, we use OR with case-insensitive equals
-    const where = {
-      OR: normalizedBloodGroups.map(bg => ({
-        bloodGroup: {
-          equals: bg,
-          mode: 'insensitive' as const
-        }
-      }))
-    };
+    // Build where clause for case-insensitive matching
+    // Filter by bloodGroup AND/OR lobby based on what's provided
+    const whereConditions: any[] = [];
+
+    // Add blood group filter if provided
+    if (normalizedBloodGroups && normalizedBloodGroups.length > 0) {
+      whereConditions.push({
+        OR: normalizedBloodGroups.map(bg => ({
+          bloodGroup: {
+            equals: bg,
+            mode: 'insensitive' as const
+          }
+        }))
+      });
+    }
+
+    // Add lobby filter if provided
+    if (normalizedLobbies && normalizedLobbies.length > 0) {
+      whereConditions.push({
+        OR: normalizedLobbies.map(lobby => ({
+          lobby: {
+            equals: lobby,
+            mode: 'insensitive' as const
+          }
+        }))
+      });
+    }
+
+    // Build final where clause
+    const where: any = whereConditions.length > 0 ? { AND: whereConditions } : {};
 
     const [data, total] = await Promise.all([
       prisma.contact.findMany({
@@ -292,34 +338,81 @@ export class ContactService {
   }
 
   /**
-   * Get contacts by lobby(s) with pagination
+   * Get contacts by lobby(s) and/or designation(s) with pagination
+   * @param lobbies - Optional: Single lobby or array of lobbies
+   * @param page - Page number
+   * @param limit - Records per page
+   * @param designations - Optional: Single designation or array of designations to filter by
    */
   async getContactsByLobby(
-    lobbies: string | string[],
+    lobbies?: string | string[],
     page: number = 1,
-    limit: number = 50
+    limit: number = 50,
+    designations?: string | string[]
   ): Promise<PaginatedResult<Contact>> {
-    // Normalize lobbies to array
-    const lobbyArray = Array.isArray(lobbies) ? lobbies : [lobbies];
-    const normalizedLobbies = lobbyArray
-      .map(lobby => lobby.trim())
-      .filter(lobby => lobby !== '');
+    // Normalize lobbies to array (if provided)
+    let normalizedLobbies: string[] | undefined;
+    if (lobbies) {
+      const lobbyArray = Array.isArray(lobbies) ? lobbies : [lobbies];
+      normalizedLobbies = lobbyArray
+        .map(lobby => lobby.trim())
+        .filter(lobby => lobby !== '');
+      
+      if (normalizedLobbies.length === 0) {
+        normalizedLobbies = undefined;
+      }
+    }
 
-    if (normalizedLobbies.length === 0) {
-      throw new AppError('At least one lobby is required', 400, 'MISSING_LOBBY');
+    // Normalize designations to array (if provided)
+    let normalizedDesignations: string[] | undefined;
+    if (designations) {
+      const designationArray = Array.isArray(designations) ? designations : [designations];
+      normalizedDesignations = designationArray
+        .map(designation => designation.trim())
+        .filter(designation => designation !== '');
+      
+      if (normalizedDesignations.length === 0) {
+        normalizedDesignations = undefined;
+      }
+    }
+
+    // At least one filter must be provided
+    if (!normalizedLobbies && !normalizedDesignations) {
+      throw new AppError('At least one of lobby or designation is required', 400, 'MISSING_FILTER');
     }
 
     const skip = (page - 1) * limit;
 
     // Build where clause for case-insensitive matching
-    const where = {
-      OR: normalizedLobbies.map(lobby => ({
-        lobby: {
-          equals: lobby,
-          mode: 'insensitive' as const
-        }
-      }))
-    };
+    // Filter by lobby AND/OR designation based on what's provided
+    const whereConditions: any[] = [];
+
+    // Add lobby filter if provided
+    if (normalizedLobbies && normalizedLobbies.length > 0) {
+      whereConditions.push({
+        OR: normalizedLobbies.map(lobby => ({
+          lobby: {
+            equals: lobby,
+            mode: 'insensitive' as const
+          }
+        }))
+      });
+    }
+
+    // Add designation filter if provided
+    if (normalizedDesignations && normalizedDesignations.length > 0) {
+      whereConditions.push({
+        OR: normalizedDesignations.map(designation => ({
+          designation: {
+            equals: designation,
+            mode: 'insensitive' as const
+          }
+        }))
+      });
+    }
+
+    // Build final where clause
+    const where: any = whereConditions.length > 0 ? { AND: whereConditions } : {};
 
     const [data, total] = await Promise.all([
       prisma.contact.findMany({
@@ -375,6 +468,166 @@ export class ContactService {
 
     // Convert to array, sort, and return
     return Array.from(lobbiesMap.values()).sort();
+  }
+
+  /**
+   * Get contacts with unified filters (bloodGroup, lobby, designation)
+   * @param filters - Filter object with optional bloodGroup, lobby, and designation
+   * @param page - Page number
+   * @param limit - Records per page
+   */
+  async filterContacts(
+    filters: {
+      bloodGroup?: string | string[];
+      lobby?: string | string[];
+      designation?: string | string[];
+    },
+    page: number = 1,
+    limit: number = 50
+  ): Promise<PaginatedResult<Contact>> {
+    // Normalize blood groups to array (if provided)
+    let normalizedBloodGroups: string[] | undefined;
+    if (filters.bloodGroup) {
+      const bloodGroupArray = Array.isArray(filters.bloodGroup) ? filters.bloodGroup : [filters.bloodGroup];
+      normalizedBloodGroups = bloodGroupArray
+        .map(bg => bg.trim().toUpperCase())
+        .filter(bg => bg !== '');
+      
+      if (normalizedBloodGroups.length === 0) {
+        normalizedBloodGroups = undefined;
+      }
+    }
+
+    // Normalize lobbies to array (if provided)
+    let normalizedLobbies: string[] | undefined;
+    if (filters.lobby) {
+      const lobbyArray = Array.isArray(filters.lobby) ? filters.lobby : [filters.lobby];
+      normalizedLobbies = lobbyArray
+        .map(lobby => lobby.trim())
+        .filter(lobby => lobby !== '');
+      
+      if (normalizedLobbies.length === 0) {
+        normalizedLobbies = undefined;
+      }
+    }
+
+    // Normalize designations to array (if provided)
+    let normalizedDesignations: string[] | undefined;
+    if (filters.designation) {
+      const designationArray = Array.isArray(filters.designation) ? filters.designation : [filters.designation];
+      normalizedDesignations = designationArray
+        .map(designation => designation.trim())
+        .filter(designation => designation !== '');
+      
+      if (normalizedDesignations.length === 0) {
+        normalizedDesignations = undefined;
+      }
+    }
+
+    // At least one filter must be provided
+    if (!normalizedBloodGroups && !normalizedLobbies && !normalizedDesignations) {
+      throw new AppError('At least one filter (bloodGroup, lobby, or designation) is required', 400, 'MISSING_FILTER');
+    }
+
+    const skip = (page - 1) * limit;
+
+    // Build where clause for case-insensitive matching
+    // All provided filters use AND logic (contact must match all specified filters)
+    const whereConditions: any[] = [];
+
+    // Add blood group filter if provided
+    if (normalizedBloodGroups && normalizedBloodGroups.length > 0) {
+      whereConditions.push({
+        OR: normalizedBloodGroups.map(bg => ({
+          bloodGroup: {
+            equals: bg,
+            mode: 'insensitive' as const
+          }
+        }))
+      });
+    }
+
+    // Add lobby filter if provided
+    if (normalizedLobbies && normalizedLobbies.length > 0) {
+      whereConditions.push({
+        OR: normalizedLobbies.map(lobby => ({
+          lobby: {
+            equals: lobby,
+            mode: 'insensitive' as const
+          }
+        }))
+      });
+    }
+
+    // Add designation filter if provided
+    if (normalizedDesignations && normalizedDesignations.length > 0) {
+      whereConditions.push({
+        OR: normalizedDesignations.map(designation => ({
+          designation: {
+            equals: designation,
+            mode: 'insensitive' as const
+          }
+        }))
+      });
+    }
+
+    // Build final where clause
+    const where: any = whereConditions.length > 0 ? { AND: whereConditions } : {};
+
+    const [data, total] = await Promise.all([
+      prisma.contact.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { name: 'asc' }
+      }),
+      prisma.contact.count({ where })
+    ]);
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  }
+
+  /**
+   * Get all unique designations (case-insensitive)
+   */
+  async getAllDesignations(): Promise<string[]> {
+    // Get all contacts with designations
+    const contacts = await prisma.contact.findMany({
+      select: {
+        designation: true
+      },
+      where: {
+        designation: {
+          not: null
+        }
+      }
+    });
+
+    // Extract designations, normalize case-insensitively, filter out nulls and empty strings
+    const designationsMap = new Map<string, string>();
+    
+    contacts.forEach(contact => {
+      if (contact.designation && contact.designation.trim() !== '') {
+        const normalized = contact.designation.trim();
+        // Use lowercase as key for case-insensitive deduplication
+        const key = normalized.toLowerCase();
+        // Store the first occurrence's original case
+        if (!designationsMap.has(key)) {
+          designationsMap.set(key, normalized);
+        }
+      }
+    });
+
+    // Convert to array, sort, and return
+    return Array.from(designationsMap.values()).sort();
   }
 
   /**

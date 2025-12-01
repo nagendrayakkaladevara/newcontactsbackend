@@ -24,11 +24,17 @@ router.delete('/', contactController.deleteAllContacts.bind(contactController));
 router.get('/', contactController.getAllContacts.bind(contactController));
 router.get('/count', contactController.getTotalCount.bind(contactController));
 router.get('/blood-groups', contactController.getBloodGroups.bind(contactController));
-router.get('/by-blood-group', contactController.getContactsByBloodGroup.bind(contactController));
 router.get('/lobbies', contactController.getLobbies.bind(contactController));
-router.get('/by-lobby', contactController.getContactsByLobby.bind(contactController));
+router.get('/designations', contactController.getDesignations.bind(contactController));
 router.get('/search/name', contactController.searchByName.bind(contactController));
 router.get('/search/phone', contactController.searchByPhone.bind(contactController));
+
+// Unified filter endpoint (recommended)
+router.get('/filter', contactController.filterContacts.bind(contactController));
+
+// Deprecated endpoints
+router.get('/by-blood-group', contactController.getContactsByBloodGroup.bind(contactController));
+router.get('/by-lobby', contactController.getContactsByLobby.bind(contactController));
 
 export default router;
 

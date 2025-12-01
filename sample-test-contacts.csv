@@ -1,0 +1,10 @@
+sno,Name,Phone,Designation,Bloodgroup,Lobby
+1,John Doe,+919876543210,Manager,A+,Engineering
+2,Jane Smith,9876543211,Developer,B+,Sales
+3,Bob Johnson,+91 98765 43212,Designer,O+,Marketing
+4,Alice Williams,9876543213,Analyst,AB+,HR
+5,Charlie Brown,+91-98765-43214,Director,A-,Finance
+6,Sarah Davis,9876543215,Executive,B-,Operations
+7,David Wilson,+919876543216,Consultant,O-,IT
+8,Emily Brown,9876543217,Specialist,AB-,Admin
+

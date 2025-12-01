@@ -11,8 +11,8 @@ export const upload = multer({
   },
   fileFilter: (req: Request, file: any, cb: multer.FileFilterCallback) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (ext !== '.csv') {
-      return cb(new Error('Only CSV files are allowed'));
+    if (ext !== '.csv' && ext !== '.xlsx' && ext !== '.xls') {
+      return cb(new Error('Only CSV and Excel files (.csv, .xlsx, .xls) are allowed'));
     }
     cb(null, true);
   }
