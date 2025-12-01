@@ -132,18 +132,18 @@ export const errorHandler = (
   try {
     // Handle Zod validation errors
     if (err instanceof ZodError) {
-      const zodErrors = err.errors;
-      if (zodErrors && Array.isArray(zodErrors) && zodErrors.length > 0) {
+      const zodIssues = err.issues;
+      if (zodIssues && Array.isArray(zodIssues) && zodIssues.length > 0) {
         return res.status(400).json({
           success: false,
           message: 'Validation error',
-          errors: zodErrors.map((e: any) => ({
+          errors: zodIssues.map((e: any) => ({
             field: (e && e.path && Array.isArray(e.path) ? e.path.join('.') : 'unknown') || 'unknown',
             message: (e && e.message) || 'Validation failed'
           }))
         });
       }
-      // Fallback if errors array is missing or empty
+      // Fallback if issues array is missing or empty
       return res.status(400).json({
         success: false,
         message: 'Validation error'
