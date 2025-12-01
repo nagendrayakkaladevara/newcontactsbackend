@@ -17,11 +17,16 @@ router.post(
   parseCSV,
   contactController.bulkUpload.bind(contactController)
 );
+router.post('/bulk', contactController.bulkCreate.bind(contactController));
 router.delete('/', contactController.deleteAllContacts.bind(contactController));
 
 // Search operations
 router.get('/', contactController.getAllContacts.bind(contactController));
 router.get('/count', contactController.getTotalCount.bind(contactController));
+router.get('/blood-groups', contactController.getBloodGroups.bind(contactController));
+router.get('/by-blood-group', contactController.getContactsByBloodGroup.bind(contactController));
+router.get('/lobbies', contactController.getLobbies.bind(contactController));
+router.get('/by-lobby', contactController.getContactsByLobby.bind(contactController));
 router.get('/search/name', contactController.searchByName.bind(contactController));
 router.get('/search/phone', contactController.searchByPhone.bind(contactController));
 

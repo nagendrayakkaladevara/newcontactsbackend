@@ -7,11 +7,9 @@ export const createContactSchema = z.object({
     .min(10, 'Phone number must be at least 10 digits')
     .max(15, 'Phone number is too long')
     .regex(/^[+]?[\d\s-()]+$/, 'Invalid phone number format'),
-  email: z.string().email('Invalid email format').optional().or(z.literal('')),
   bloodGroup: z.string().max(10).optional().or(z.literal('')),
-  workingDivision: z.string().max(255).optional().or(z.literal('')),
-  designation: z.string().max(255).optional().or(z.literal('')),
-  city: z.string().max(255).optional().or(z.literal(''))
+  lobby: z.string().max(255).optional().or(z.literal('')),
+  designation: z.string().max(255).optional().or(z.literal(''))
 });
 
 export const updateContactSchema = createContactSchema.partial().extend({
@@ -28,11 +26,9 @@ export const csvContactSchema = z.object({
   phone: z.string()
     .min(10, 'Phone number must be at least 10 digits')
     .regex(/^[+]?[\d\s-()]+$/, 'Invalid phone number format'),
-  email: z.string().email('Invalid email format').optional().or(z.literal('')),
   bloodGroup: z.string().optional().or(z.literal('')),
-  workingDivision: z.string().optional().or(z.literal('')),
-  designation: z.string().optional().or(z.literal('')),
-  city: z.string().optional().or(z.literal(''))
+  lobby: z.string().optional().or(z.literal('')),
+  designation: z.string().optional().or(z.literal(''))
 });
 
 // Query parameters validation

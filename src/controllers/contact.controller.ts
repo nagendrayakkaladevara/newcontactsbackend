@@ -162,6 +162,116 @@ export class ContactController {
   }
 
   /**
+   * Get all unique blood groups
+   * GET /api/contacts/blood-groups
+   */
+  async getBloodGroups(req: Request, res: Response, next: NextFunction) {
+    try {
+      const bloodGroups = await contactService.getAllBloodGroups();
+      res.json({
+        success: true,
+        data: bloodGroups
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get contacts by blood group(s)
+   * GET /api/contacts/by-blood-group?bloodGroup=A+&page=1&limit=50
+   * GET /api/contacts/by-blood-group?bloodGroup=A+,B+,O+&page=1&limit=50
+   */
+  async getContactsByBloodGroup(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { bloodGroup, page, limit } = req.query;
+
+      if (!bloodGroup || typeof bloodGroup !== 'string') {
+        throw new AppError('Blood group is required', 400, 'MISSING_BLOOD_GROUP');
+      }
+
+      // Parse blood groups - support comma-separated or single value
+      const bloodGroups = bloodGroup.split(',').map(bg => bg.trim()).filter(bg => bg !== '');
+
+      // Parse pagination with defaults
+      const pageNum = page ? parseInt(String(page), 10) : 1;
+      const limitNum = limit ? parseInt(String(limit), 10) : 50;
+
+      if (isNaN(pageNum) || pageNum < 1) {
+        throw new AppError('Page must be a positive number', 400, 'INVALID_PAGE');
+      }
+
+      if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
+        throw new AppError('Limit must be between 1 and 100', 400, 'INVALID_LIMIT');
+      }
+
+      const result = await contactService.getContactsByBloodGroup(bloodGroups, pageNum, limitNum);
+      
+      res.json({
+        success: true,
+        ...result
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get all unique lobbies
+   * GET /api/contacts/lobbies
+   */
+  async getLobbies(req: Request, res: Response, next: NextFunction) {
+    try {
+      const lobbies = await contactService.getAllLobbies();
+      res.json({
+        success: true,
+        data: lobbies
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get contacts by lobby(s)
+   * GET /api/contacts/by-lobby?lobby=Engineering&page=1&limit=50
+   * GET /api/contacts/by-lobby?lobby=Engineering,Sales&page=1&limit=50
+   */
+  async getContactsByLobby(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { lobby, page, limit } = req.query;
+
+      if (!lobby || typeof lobby !== 'string') {
+        throw new AppError('Lobby is required', 400, 'MISSING_LOBBY');
+      }
+
+      // Parse lobbies - support comma-separated or single value
+      const lobbies = lobby.split(',').map(l => l.trim()).filter(l => l !== '');
+
+      // Parse pagination with defaults
+      const pageNum = page ? parseInt(String(page), 10) : 1;
+      const limitNum = limit ? parseInt(String(limit), 10) : 50;
+
+      if (isNaN(pageNum) || pageNum < 1) {
+        throw new AppError('Page must be a positive number', 400, 'INVALID_PAGE');
+      }
+
+      if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
+        throw new AppError('Limit must be between 1 and 100', 400, 'INVALID_LIMIT');
+      }
+
+      const result = await contactService.getContactsByLobby(lobbies, pageNum, limitNum);
+      
+      res.json({
+        success: true,
+        ...result
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Bulk upload contacts from CSV
    * POST /api/contacts/bulk-upload
    */
@@ -179,6 +289,46 @@ export class ContactController {
       res.status(201).json({
         success: true,
         message: `Bulk upload completed. ${result.created} contacts created.`,
+        created: result.created,
+        errors: result.errors,
+        hasErrors: result.errors.length > 0
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Bulk create contacts from JSON array
+   * POST /api/contacts/bulk
+   */
+  async bulkCreate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const replaceAll = req.query.replaceAll === 'true';
+      const contacts = req.body;
+
+      // Validate request body
+      if (!contacts) {
+        throw new AppError('Request body is required', 400, 'MISSING_BODY');
+      }
+
+      if (!Array.isArray(contacts)) {
+        throw new AppError('Request body must be an array of contacts', 400, 'INVALID_FORMAT');
+      }
+
+      if (contacts.length === 0) {
+        throw new AppError('Contacts array cannot be empty', 400, 'EMPTY_ARRAY');
+      }
+
+      if (contacts.length > 1000) {
+        throw new AppError('Maximum 1000 contacts allowed per request', 400, 'TOO_MANY_CONTACTS');
+      }
+
+      const result = await contactService.bulkUploadContacts(contacts, replaceAll);
+      
+      res.status(201).json({
+        success: true,
+        message: `Bulk create completed. ${result.created} contacts created.`,
         created: result.created,
         errors: result.errors,
         hasErrors: result.errors.length > 0

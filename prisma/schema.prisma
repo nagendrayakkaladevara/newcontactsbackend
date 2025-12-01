@@ -11,19 +11,25 @@ datasource db {
 }
 
 model Contact {
-  id              String   @id @default(uuid())
-  name            String
-  phone           String   @unique
-  email           String?
-  bloodGroup      String?
-  workingDivision String?
-  designation     String?
-  city            String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  phone       String   @unique
+  bloodGroup  String?
+  lobby       String?
+  designation String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([name])
   @@index([phone])
   @@map("contacts")
+}
+
+model VisitCount {
+  id        String   @id @default("singleton")
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("visit_count")
 }
 

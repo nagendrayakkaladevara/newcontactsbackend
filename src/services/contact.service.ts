@@ -1,5 +1,6 @@
 import { PrismaClient, Contact } from '@prisma/client';
 import { createContactSchema, csvContactSchema } from '../validators/contact.validator';
+import { AppError } from '../middleware/errorHandler';
 import { z } from 'zod';
 
 const prisma = new PrismaClient();
@@ -12,6 +13,29 @@ export interface PaginatedResult<T> {
     total: number;
     totalPages: number;
   };
+}
+
+// Valid blood groups
+const VALID_BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+
+/**
+ * Normalize and validate blood group
+ * - Converts to uppercase (e.g., "a+" -> "A+")
+ * - If not in valid list, returns "No Data"
+ * - If empty/null, returns null
+ */
+function normalizeBloodGroup(bloodGroup: string | null | undefined): string | null {
+  if (!bloodGroup || bloodGroup.trim() === '') {
+    return null;
+  }
+  
+  const normalized = bloodGroup.trim().toUpperCase();
+  
+  if (VALID_BLOOD_GROUPS.includes(normalized)) {
+    return normalized;
+  }
+  
+  return 'No Data';
 }
 
 export class ContactService {
@@ -27,18 +51,16 @@ export class ContactService {
     });
 
     if (existing) {
-      throw new Error('Contact with this phone number already exists');
+      throw new AppError('Contact with this phone number already exists', 409, 'DUPLICATE_PHONE');
     }
 
     return prisma.contact.create({
       data: {
         name: validated.name,
         phone: validated.phone,
-        email: validated.email || null,
-        bloodGroup: validated.bloodGroup || null,
-        workingDivision: validated.workingDivision || null,
-        designation: validated.designation || null,
-        city: validated.city || null
+        bloodGroup: normalizeBloodGroup(validated.bloodGroup),
+        lobby: validated.lobby || null,
+        designation: validated.designation || null
       }
     });
   }
@@ -53,7 +75,7 @@ export class ContactService {
     // Check if contact exists
     const existing = await prisma.contact.findUnique({ where: { id } });
     if (!existing) {
-      throw new Error('Contact not found');
+      throw new AppError('Contact not found', 404, 'NOT_FOUND');
     }
 
     // If phone is being updated, check for duplicates
@@ -62,7 +84,7 @@ export class ContactService {
         where: { phone: data.phone }
       });
       if (phoneExists) {
-        throw new Error('Contact with this phone number already exists');
+        throw new AppError('Contact with this phone number already exists', 409, 'DUPLICATE_PHONE');
       }
     }
 
@@ -71,11 +93,9 @@ export class ContactService {
       data: {
         ...(data.name && { name: data.name }),
         ...(data.phone && { phone: data.phone }),
-        ...(data.email !== undefined && { email: data.email || null }),
-        ...(data.bloodGroup !== undefined && { bloodGroup: data.bloodGroup || null }),
-        ...(data.workingDivision !== undefined && { workingDivision: data.workingDivision || null }),
-        ...(data.designation !== undefined && { designation: data.designation || null }),
-        ...(data.city !== undefined && { city: data.city || null })
+        ...(data.bloodGroup !== undefined && { bloodGroup: normalizeBloodGroup(data.bloodGroup) }),
+        ...(data.lobby !== undefined && { lobby: data.lobby || null }),
+        ...(data.designation !== undefined && { designation: data.designation || null })
       }
     });
   }
@@ -86,7 +106,7 @@ export class ContactService {
   async deleteContact(id: string): Promise<void> {
     const contact = await prisma.contact.findUnique({ where: { id } });
     if (!contact) {
-      throw new Error('Contact not found');
+      throw new AppError('Contact not found', 404, 'NOT_FOUND');
     }
 
     await prisma.contact.delete({ where: { id } });
@@ -188,6 +208,492 @@ export class ContactService {
   }
 
   /**
+   * Get contacts by blood group(s) with pagination
+   */
+  async getContactsByBloodGroup(
+    bloodGroups: string | string[],
+    page: number = 1,
+    limit: number = 50
+  ): Promise<PaginatedResult<Contact>> {
+    // Normalize blood groups to array and uppercase
+    const bloodGroupArray = Array.isArray(bloodGroups) ? bloodGroups : [bloodGroups];
+    const normalizedBloodGroups = bloodGroupArray
+      .map(bg => bg.trim().toUpperCase())
+      .filter(bg => bg !== '');
+
+    if (normalizedBloodGroups.length === 0) {
+      throw new AppError('At least one blood group is required', 400, 'MISSING_BLOOD_GROUP');
+    }
+
+    const skip = (page - 1) * limit;
+
+    // Build where clause - we normalize to uppercase, so we can use regular 'in'
+    // But to handle case-insensitive matching in DB, we use OR with case-insensitive equals
+    const where = {
+      OR: normalizedBloodGroups.map(bg => ({
+        bloodGroup: {
+          equals: bg,
+          mode: 'insensitive' as const
+        }
+      }))
+    };
+
+    const [data, total] = await Promise.all([
+      prisma.contact.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { name: 'asc' }
+      }),
+      prisma.contact.count({ where })
+    ]);
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  }
+
+  /**
+   * Get all unique blood groups (case-insensitive)
+   */
+  async getAllBloodGroups(): Promise<string[]> {
+    // Get all contacts with blood groups
+    const contacts = await prisma.contact.findMany({
+      select: {
+        bloodGroup: true
+      },
+      where: {
+        bloodGroup: {
+          not: null
+        }
+      }
+    });
+
+    // Extract blood groups, normalize to uppercase, filter out nulls and empty strings
+    const bloodGroupsMap = new Map<string, string>();
+    
+    contacts.forEach(contact => {
+      if (contact.bloodGroup && contact.bloodGroup.trim() !== '') {
+        const normalized = contact.bloodGroup.trim().toUpperCase();
+        // Store the normalized version (use first occurrence's original case if needed, 
+        // but we'll return uppercase for consistency)
+        bloodGroupsMap.set(normalized, normalized);
+      }
+    });
+
+    // Convert to array, sort, and return
+    return Array.from(bloodGroupsMap.values()).sort();
+  }
+
+  /**
+   * Get contacts by lobby(s) with pagination
+   */
+  async getContactsByLobby(
+    lobbies: string | string[],
+    page: number = 1,
+    limit: number = 50
+  ): Promise<PaginatedResult<Contact>> {
+    // Normalize lobbies to array
+    const lobbyArray = Array.isArray(lobbies) ? lobbies : [lobbies];
+    const normalizedLobbies = lobbyArray
+      .map(lobby => lobby.trim())
+      .filter(lobby => lobby !== '');
+
+    if (normalizedLobbies.length === 0) {
+      throw new AppError('At least one lobby is required', 400, 'MISSING_LOBBY');
+    }
+
+    const skip = (page - 1) * limit;
+
+    // Build where clause for case-insensitive matching
+    const where = {
+      OR: normalizedLobbies.map(lobby => ({
+        lobby: {
+          equals: lobby,
+          mode: 'insensitive' as const
+        }
+      }))
+    };
+
+    const [data, total] = await Promise.all([
+      prisma.contact.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { name: 'asc' }
+      }),
+      prisma.contact.count({ where })
+    ]);
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  }
+
+  /**
+   * Get all unique lobbies (case-insensitive)
+   */
+  async getAllLobbies(): Promise<string[]> {
+    // Get all contacts with lobbies
+    const contacts = await prisma.contact.findMany({
+      select: {
+        lobby: true
+      },
+      where: {
+        lobby: {
+          not: null
+        }
+      }
+    });
+
+    // Extract lobbies, normalize case-insensitively, filter out nulls and empty strings
+    const lobbiesMap = new Map<string, string>();
+    
+    contacts.forEach(contact => {
+      if (contact.lobby && contact.lobby.trim() !== '') {
+        const normalized = contact.lobby.trim();
+        // Use lowercase as key for case-insensitive deduplication
+        const key = normalized.toLowerCase();
+        // Store the first occurrence's original case
+        if (!lobbiesMap.has(key)) {
+          lobbiesMap.set(key, normalized);
+        }
+      }
+    });
+
+    // Convert to array, sort, and return
+    return Array.from(lobbiesMap.values()).sort();
+  }
+
+  /**
+   * Analytics: Get overview statistics
+   */
+  async getAnalyticsOverview() {
+    const [
+      totalContacts,
+      contactsWithBloodGroup,
+      contactsWithLobby,
+      recentContacts7Days,
+      recentContacts30Days,
+      visitCount
+    ] = await Promise.all([
+      prisma.contact.count(),
+      prisma.contact.count({ where: { bloodGroup: { not: null } } }),
+      prisma.contact.count({ where: { lobby: { not: null } } }),
+      prisma.contact.count({
+        where: {
+          createdAt: {
+            gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+          }
+        }
+      }),
+      prisma.contact.count({
+        where: {
+          createdAt: {
+            gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+          }
+        }
+      }),
+      this.getVisitCount()
+    ]);
+
+    return {
+      totalContacts,
+      contactsWithBloodGroup,
+      contactsWithLobby,
+      contactsWithoutBloodGroup: totalContacts - contactsWithBloodGroup,
+      contactsWithoutLobby: totalContacts - contactsWithLobby,
+      recentContacts7Days,
+      recentContacts30Days,
+      visitCount,
+      bloodGroupCoverage: totalContacts > 0 ? ((contactsWithBloodGroup / totalContacts) * 100).toFixed(2) : '0.00',
+      lobbyCoverage: totalContacts > 0 ? ((contactsWithLobby / totalContacts) * 100).toFixed(2) : '0.00'
+    };
+  }
+
+  /**
+   * Analytics: Get blood group distribution
+   */
+  async getBloodGroupDistribution() {
+    const contacts = await prisma.contact.findMany({
+      select: {
+        bloodGroup: true
+      },
+      where: {
+        bloodGroup: {
+          not: null
+        }
+      }
+    });
+
+    const distribution = new Map<string, number>();
+    
+    contacts.forEach(contact => {
+      if (contact.bloodGroup) {
+        const normalized = contact.bloodGroup.trim().toUpperCase();
+        distribution.set(normalized, (distribution.get(normalized) || 0) + 1);
+      }
+    });
+
+    const total = contacts.length;
+    const result = Array.from(distribution.entries())
+      .map(([bloodGroup, count]) => ({
+        bloodGroup,
+        count,
+        percentage: total > 0 ? ((count / total) * 100).toFixed(2) : '0.00'
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      total,
+      distribution: result
+    };
+  }
+
+  /**
+   * Analytics: Get lobby distribution
+   */
+  async getLobbyDistribution() {
+    const contacts = await prisma.contact.findMany({
+      select: {
+        lobby: true
+      },
+      where: {
+        lobby: {
+          not: null
+        }
+      }
+    });
+
+    const distribution = new Map<string, { count: number; label: string }>();
+    
+    contacts.forEach(contact => {
+      if (contact.lobby) {
+        const normalized = contact.lobby.trim();
+        const key = normalized.toLowerCase();
+        if (!distribution.has(key)) {
+          distribution.set(key, { count: 0, label: normalized });
+        }
+        const entry = distribution.get(key);
+        if (entry) {
+          entry.count++;
+        }
+      }
+    });
+
+    const total = contacts.length;
+    const result = Array.from(distribution.values())
+      .map(({ label, count }) => ({
+        lobby: label,
+        count,
+        percentage: total > 0 ? ((count / total) * 100).toFixed(2) : '0.00'
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      total,
+      distribution: result
+    };
+  }
+
+
+  /**
+   * Analytics: Get designation distribution
+   */
+  async getDesignationDistribution() {
+    const contacts = await prisma.contact.findMany({
+      select: {
+        designation: true
+      },
+      where: {
+        designation: {
+          not: null
+        }
+      }
+    });
+
+    const distribution = new Map<string, { count: number; label: string }>();
+    
+    contacts.forEach(contact => {
+      if (contact.designation) {
+        const normalized = contact.designation.trim();
+        const key = normalized.toLowerCase();
+        if (!distribution.has(key)) {
+          distribution.set(key, { count: 0, label: normalized });
+        }
+        const entry = distribution.get(key);
+        if (entry) {
+          entry.count++;
+        }
+      }
+    });
+
+    const total = contacts.length;
+    const result = Array.from(distribution.values())
+      .map(({ label, count }) => ({
+        designation: label,
+        count,
+        percentage: total > 0 ? ((count / total) * 100).toFixed(2) : '0.00'
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      total,
+      distribution: result
+    };
+  }
+
+  /**
+   * Analytics: Get contacts growth over time
+   */
+  async getContactsGrowth(days: number = 30) {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    
+    const contacts = await prisma.contact.findMany({
+      select: {
+        createdAt: true
+      },
+      where: {
+        createdAt: {
+          gte: startDate
+        }
+      },
+      orderBy: {
+        createdAt: 'asc'
+      }
+    });
+
+    // Group by date
+    const dailyGrowth = new Map<string, number>();
+    
+    contacts.forEach(contact => {
+      const date = contact.createdAt.toISOString().split('T')[0];
+      dailyGrowth.set(date, (dailyGrowth.get(date) || 0) + 1);
+    });
+
+    // Fill in missing dates with 0
+    const result: Array<{ date: string; count: number; cumulative: number }> = [];
+    let cumulative = 0;
+    
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const count = dailyGrowth.get(dateStr) || 0;
+      cumulative += count;
+      
+      result.push({
+        date: dateStr,
+        count,
+        cumulative
+      });
+    }
+
+    return {
+      period: `${days} days`,
+      totalAdded: contacts.length,
+      dailyGrowth: result
+    };
+  }
+
+  /**
+   * Analytics: Get recent contacts
+   */
+  async getRecentContacts(limit: number = 10) {
+    const contacts = await prisma.contact.findMany({
+      take: limit,
+      orderBy: {
+        createdAt: 'desc'
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        bloodGroup: true,
+        lobby: true,
+        designation: true,
+        createdAt: true
+      }
+    });
+
+    return {
+      count: contacts.length,
+      contacts
+    };
+  }
+
+  /**
+   * Analytics: Increment and get visit count (thread-safe)
+   */
+  async incrementVisitCount(): Promise<number> {
+    try {
+      // Use upsert with atomic increment to handle concurrent requests
+      // This ensures thread-safety even when multiple users hit the API simultaneously
+      const result = await prisma.visitCount.upsert({
+        where: { id: 'singleton' },
+        update: {
+          count: {
+            increment: 1
+          }
+        },
+        create: {
+          id: 'singleton',
+          count: 1
+        }
+      });
+
+      return result.count;
+    } catch (error) {
+      // If upsert fails, try to create or increment separately
+      try {
+        // Try to increment first
+        const updated = await prisma.visitCount.update({
+          where: { id: 'singleton' },
+          data: {
+            count: {
+              increment: 1
+            }
+          }
+        });
+        return updated.count;
+      } catch (updateError) {
+        // If update fails (record doesn't exist), create it
+        const created = await prisma.visitCount.create({
+          data: {
+            id: 'singleton',
+            count: 1
+          }
+        });
+        return created.count;
+      }
+    }
+  }
+
+  /**
+   * Analytics: Get visit count without incrementing
+   */
+  async getVisitCount(): Promise<number> {
+    const visitCount = await prisma.visitCount.findUnique({
+      where: { id: 'singleton' }
+    });
+
+    return visitCount?.count || 0;
+  }
+
+  /**
    * Bulk upload contacts from CSV data
    */
   async bulkUploadContacts(
@@ -220,9 +726,17 @@ export class ContactService {
         phoneSet.add(validated.phone);
         validContacts.push(validated);
       } catch (error) {
+        let errorMessage = 'Validation failed';
+        if (error instanceof Error) {
+          // Sanitize error message to remove file paths
+          errorMessage = error.message
+            .replace(/[A-Z]:\\[^\s]+/gi, '')
+            .replace(/\/[^\s]+\.(ts|js)/g, '')
+            .trim() || 'Validation failed';
+        }
         errors.push({
           row: index + 1,
-          error: error instanceof Error ? error.message : 'Validation failed'
+          error: errorMessage
         });
       }
     });
@@ -235,11 +749,9 @@ export class ContactService {
     const dataToInsert = validContacts.map(contact => ({
       name: contact.name,
       phone: contact.phone,
-      email: contact.email || null,
-      bloodGroup: contact.bloodGroup || null,
-      workingDivision: contact.workingDivision || null,
-      designation: contact.designation || null,
-      city: contact.city || null
+      bloodGroup: normalizeBloodGroup(contact.bloodGroup),
+      lobby: contact.lobby || null,
+      designation: contact.designation || null
     }));
 
     // Optimize bulk insertion based on replaceAll flag
@@ -295,9 +807,21 @@ export class ContactService {
           const originalIndex = validContacts.findIndex(
             vc => vc.phone === dataToInsert[i].phone
           );
+          let errorMessage = 'Insert failed';
+          if (err instanceof Error) {
+            // Sanitize error message
+            errorMessage = err.message
+              .replace(/[A-Z]:\\[^\s]+/gi, '')
+              .replace(/\/[^\s]+\.(ts|js)/g, '')
+              .trim() || 'Insert failed';
+            // Check for duplicate phone error
+            if (err.message.includes('Unique constraint') || err.message.includes('P2002')) {
+              errorMessage = 'Phone number already exists';
+            }
+          }
           errors.push({
             row: originalIndex >= 0 ? contacts.indexOf(validContacts[originalIndex]) + 1 : i + 1,
-            error: err instanceof Error ? err.message : 'Insert failed'
+            error: errorMessage
           });
         }
       }
