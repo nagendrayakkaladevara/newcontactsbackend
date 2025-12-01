@@ -1397,6 +1397,63 @@ model VisitCount {
 - Sanitized error messages for user-friendly responses
 - JSON-only error responses (no HTML error pages)
 
+## Deployment
+
+### Environment Variables for Production
+
+When deploying to production, make sure to set the following environment variables:
+
+```env
+DATABASE_URL="postgresql://user:password@host:5432/contactsdb?schema=public"
+PORT=3000
+NODE_ENV=production
+ALLOWED_ORIGINS=https://your-frontend-domain.com,https://www.your-frontend-domain.com
+```
+
+### CORS Configuration
+
+**⚠️ Important for Production:** You **must** set `ALLOWED_ORIGINS` to your frontend URL(s) when deploying.
+
+The `ALLOWED_ORIGINS` environment variable controls which domains can make requests to your API:
+
+- **Development**: `ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173`
+- **Production**: `ALLOWED_ORIGINS=https://your-frontend-domain.com`
+
+**Examples:**
+
+**Single Frontend:**
+```env
+ALLOWED_ORIGINS=https://myapp.com
+```
+
+**Multiple Origins (with www and subdomains):**
+```env
+ALLOWED_ORIGINS=https://myapp.com,https://www.myapp.com,https://admin.myapp.com
+```
+
+**With Localhost for Testing:**
+```env
+ALLOWED_ORIGINS=https://myapp.com,http://localhost:3000
+```
+
+**⚠️ Security Warning:** If `ALLOWED_ORIGINS` is not set, the API defaults to `'*'` (allows all origins), which is **not secure** for production. Always set this variable in production.
+
+### Deployment Steps
+
+1. **Set environment variables** in your hosting platform (Heroku, Railway, Render, AWS, etc.)
+2. **Build the application:**
+   ```bash
+   npm run build
+   ```
+3. **Run database migrations:**
+   ```bash
+   npx prisma migrate deploy
+   ```
+4. **Start the production server:**
+   ```bash
+   npm start
+   ```
+
 ## Development
 
 ### Project Structure
