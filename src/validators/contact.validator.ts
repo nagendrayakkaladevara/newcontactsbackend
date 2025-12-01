@@ -33,14 +33,42 @@ export const csvContactSchema = z.object({
 
 // Query parameters validation
 export const paginationSchema = z.object({
-  page: z.string().regex(/^\d+$/).transform(Number).default('1'),
-  limit: z.string().regex(/^\d+$/).transform(Number).default('50')
+  page: z.preprocess(
+    (val) => {
+      if (!val) return 1;
+      const num = Number(val);
+      return isNaN(num) ? 1 : num;
+    },
+    z.number().int().positive().default(1)
+  ),
+  limit: z.preprocess(
+    (val) => {
+      if (!val) return 50;
+      const num = Number(val);
+      return isNaN(num) ? 50 : num;
+    },
+    z.number().int().positive().max(100).default(50)
+  )
 });
 
 export const searchSchema = z.object({
   query: z.string().min(1, 'Search query is required'),
-  page: z.string().regex(/^\d+$/).transform(Number).optional().default('1'),
-  limit: z.string().regex(/^\d+$/).transform(Number).optional().default('50')
+  page: z.preprocess(
+    (val) => {
+      if (!val) return 1;
+      const num = Number(val);
+      return isNaN(num) ? 1 : num;
+    },
+    z.number().int().positive().optional().default(1)
+  ),
+  limit: z.preprocess(
+    (val) => {
+      if (!val) return 50;
+      const num = Number(val);
+      return isNaN(num) ? 50 : num;
+    },
+    z.number().int().positive().max(100).optional().default(50)
+  )
 });
 
 export const deleteAllSchema = z.object({
