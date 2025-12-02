@@ -3,7 +3,18 @@ import { createContactSchema, csvContactSchema } from '../validators/contact.val
 import { AppError } from '../middleware/errorHandler';
 import { z } from 'zod';
 
-const prisma = new PrismaClient();
+// Singleton pattern for Prisma Client (important for serverless environments)
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+const prisma = globalForPrisma.prisma ?? new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+});
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma;
+}
 
 export interface PaginatedResult<T> {
   data: T[];
