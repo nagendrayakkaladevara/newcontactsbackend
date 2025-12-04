@@ -1,9 +1,13 @@
 import { Router } from 'express';
 import { analyticsController } from '../controllers/analytics.controller';
+import { auth } from '../middleware/auth';
 
 const router = Router();
 
-// Analytics endpoints
+// All analytics routes require authentication (API key or Basic auth)
+router.use(auth);
+
+// Analytics endpoints (available to all authenticated users)
 router.get('/overview', analyticsController.getOverview.bind(analyticsController));
 router.get('/blood-groups', analyticsController.getBloodGroupDistribution.bind(analyticsController));
 router.get('/lobbies', analyticsController.getLobbyDistribution.bind(analyticsController));
