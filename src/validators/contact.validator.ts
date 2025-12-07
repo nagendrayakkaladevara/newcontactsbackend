@@ -24,7 +24,8 @@ export const contactIdSchema = z.object({
 export const csvContactSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   phone: z.string()
-    .min(10, 'Phone number must be at least 10 digits')
+    .min(1, 'Phone number is required')
+    .max(15, 'Phone number is too long')
     .regex(/^[+]?[\d\s-()]+$/, 'Invalid phone number format'),
   bloodGroup: z.string().optional().or(z.literal('')),
   lobby: z.string().optional().or(z.literal('')),

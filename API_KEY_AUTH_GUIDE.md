@@ -252,6 +252,8 @@ If you had JWT authentication before:
 
 ## 📚 Related Documentation
 
+- `POSTMAN_AUTH_SETUP.md` - Step-by-step Postman setup guide
 - `SECURITY_IMPLEMENTATION.md` - Full security implementation details
 - `QUICK_START_SECURITY.md` - Quick setup guide
+- `ADMIN_API_README.md` - Complete admin API documentation
 

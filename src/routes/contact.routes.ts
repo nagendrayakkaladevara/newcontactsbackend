@@ -11,25 +11,26 @@ const router = Router();
 router.use(auth);
 
 // Single contact operations
-router.post('/', contactController.createContact.bind(contactController));
-router.put('/:id', contactController.updateContact.bind(contactController));
-router.delete('/:id', contactController.deleteContact.bind(contactController));
+router.post('/admin/createContact', contactController.createContact.bind(contactController));
+router.put('/admin/updateContact/:id', contactController.updateContact.bind(contactController));
+router.delete('/admin/deleteContact/:id', contactController.deleteContact.bind(contactController));
 
 // Bulk operations (with rate limiting)
 router.post(
-  '/bulk-upload',
+  '/admin/bulk-upload',
   bulkOperationLimiter,
   upload.single('file'),
   parseCSV,
   contactController.bulkUpload.bind(contactController)
 );
-router.post('/bulk', bulkOperationLimiter, contactController.bulkCreate.bind(contactController));
+router.post('/admin/bulk', bulkOperationLimiter, contactController.bulkCreate.bind(contactController));
 
 // Delete all contacts (with strict rate limiting)
-router.delete('/', strictLimiter, contactController.deleteAllContacts.bind(contactController));
+router.delete('/admin/deleteAllContacts', strictLimiter, contactController.deleteAllContacts.bind(contactController));
 
 // Search operations (available to all authenticated users, including readonly)
 router.get('/', contactController.getAllContacts.bind(contactController));
+router.get('/all', contactController.getAllContactsWithoutPagination.bind(contactController));
 router.get('/count', contactController.getTotalCount.bind(contactController));
 router.get('/blood-groups', contactController.getBloodGroups.bind(contactController));
 router.get('/lobbies', contactController.getLobbies.bind(contactController));

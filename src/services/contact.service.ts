@@ -160,6 +160,15 @@ export class ContactService {
   }
 
   /**
+   * Get all contacts without pagination
+   */
+  async getAllContactsWithoutPagination(): Promise<Contact[]> {
+    return prisma.contact.findMany({
+      orderBy: { name: 'asc' }
+    });
+  }
+
+  /**
    * Search contacts by name (partial, case-insensitive)
    */
   async searchByName(
@@ -963,15 +972,84 @@ export class ContactService {
   async bulkUploadContacts(
     contacts: Array<z.infer<typeof csvContactSchema>>,
     replaceAll: boolean = false
-  ): Promise<{ created: number; errors: Array<{ row: number; error: string }> }> {
+  ): Promise<{ 
+    created: number; 
+    errors: Array<{ 
+      row: number; 
+      error: string;
+      type: string;
+      field?: string;
+    }>;
+    report: {
+      total: number;
+      created: number;
+      failed: number;
+      errorsByType: Record<string, number>;
+      errorsByField: Record<string, number>;
+      connectionLost?: boolean;
+      partialUpload?: boolean;
+      processedContacts?: number;
+      notProcessedContacts?: number;
+      message?: string;
+    };
+  }> {
     // If replaceAll is true, delete all existing contacts first
     if (replaceAll) {
       await prisma.contact.deleteMany();
     }
 
-    const errors: Array<{ row: number; error: string }> = [];
+    const errors: Array<{ 
+      row: number; 
+      error: string;
+      type: string;
+      field?: string;
+    }> = [];
     const validContacts: Array<z.infer<typeof csvContactSchema>> = [];
     const phoneSet = new Set<string>();
+
+    // Helper function to parse Zod errors into user-friendly messages
+    const parseZodError = (error: z.ZodError): { message: string; field?: string; type: string } => {
+      // Check if issues array exists and has elements (ZodError uses 'issues', not 'errors')
+      if (!error.issues || !Array.isArray(error.issues) || error.issues.length === 0) {
+        return {
+          message: 'Validation failed',
+          type: 'validation_error'
+        };
+      }
+
+      const firstError = error.issues[0];
+      
+      // Check if firstError exists and has required properties
+      if (!firstError) {
+        return {
+          message: 'Validation failed',
+          type: 'validation_error'
+        };
+      }
+
+      let message = firstError.message || 'Validation failed';
+      const field = (firstError.path && Array.isArray(firstError.path)) 
+        ? firstError.path.join('.') 
+        : '';
+      
+      // Make error messages more user-friendly
+      const errorCode = firstError.code as string;
+      if (errorCode === 'too_small') {
+        message = `${field ? `${field}: ` : ''}Value is too short`;
+      } else if (errorCode === 'too_big') {
+        message = `${field ? `${field}: ` : ''}Value is too long`;
+      } else if (errorCode === 'invalid_type') {
+        message = `${field ? `${field}: ` : ''}Invalid value type`;
+      } else if (errorCode === 'invalid_string' || errorCode === 'invalid_format') {
+        message = `${field ? `${field}: ` : ''}Invalid format`;
+      }
+      
+      return {
+        message,
+        field: field || undefined,
+        type: firstError.code || 'validation_error'
+      };
+    };
 
     // Validate and deduplicate contacts
     contacts.forEach((contact, index) => {
@@ -982,7 +1060,9 @@ export class ContactService {
         if (phoneSet.has(validated.phone)) {
           errors.push({
             row: index + 1,
-            error: `Duplicate phone number in CSV: ${validated.phone}`
+            error: `Duplicate phone number in CSV: ${validated.phone}`,
+            type: 'duplicate',
+            field: 'phone'
           });
           return;
         }
@@ -990,23 +1070,53 @@ export class ContactService {
         phoneSet.add(validated.phone);
         validContacts.push(validated);
       } catch (error) {
-        let errorMessage = 'Validation failed';
-        if (error instanceof Error) {
-          // Sanitize error message to remove file paths
-          errorMessage = error.message
-            .replace(/[A-Z]:\\[^\s]+/gi, '')
-            .replace(/\/[^\s]+\.(ts|js)/g, '')
-            .trim() || 'Validation failed';
+        if (error instanceof z.ZodError) {
+          const parsed = parseZodError(error);
+          errors.push({
+            row: index + 1,
+            error: parsed.message,
+            type: parsed.type,
+            field: parsed.field
+          });
+        } else {
+          let errorMessage = 'Validation failed';
+          if (error instanceof Error) {
+            // Sanitize error message to remove file paths
+            errorMessage = error.message
+              .replace(/[A-Z]:\\[^\s]+/gi, '')
+              .replace(/\/[^\s]+\.(ts|js)/g, '')
+              .trim() || 'Validation failed';
+          }
+          errors.push({
+            row: index + 1,
+            error: errorMessage,
+            type: 'validation_error'
+          });
         }
-        errors.push({
-          row: index + 1,
-          error: errorMessage
-        });
       }
     });
 
+    // Generate error report
+    const errorsByType: Record<string, number> = {};
+    const errorsByField: Record<string, number> = {};
+    
+    errors.forEach(err => {
+      errorsByType[err.type] = (errorsByType[err.type] || 0) + 1;
+      if (err.field) {
+        errorsByField[err.field] = (errorsByField[err.field] || 0) + 1;
+      }
+    });
+
+    const report = {
+      total: contacts.length,
+      created: 0,
+      failed: errors.length,
+      errorsByType,
+      errorsByField
+    };
+
     if (validContacts.length === 0) {
-      return { created: 0, errors };
+      return { created: 0, errors, report };
     }
 
     // Prepare data for bulk insert
@@ -1027,33 +1137,128 @@ export class ContactService {
           data: dataToInsert,
           skipDuplicates: true
         });
+        report.created = result.count;
         return {
           created: result.count,
-          errors
+          errors,
+          report
         };
       } else {
         // For incremental updates, use upsert in batches for better performance
         // Process in chunks of 500 to avoid transaction timeout
         const chunkSize = 500;
         let created = 0;
+        let lastSuccessfulChunk = -1;
+        let connectionLost = false;
         
         for (let i = 0; i < dataToInsert.length; i += chunkSize) {
           const chunk = dataToInsert.slice(i, i + chunkSize);
-          await prisma.$transaction(
-            chunk.map(data =>
-              prisma.contact.upsert({
-                where: { phone: data.phone },
-                update: data,
-                create: data
-              })
-            )
-          );
-          created += chunk.length;
+          try {
+            await prisma.$transaction(
+              chunk.map(data =>
+                prisma.contact.upsert({
+                  where: { phone: data.phone },
+                  update: data,
+                  create: data
+                })
+              )
+            );
+            created += chunk.length;
+            lastSuccessfulChunk = i;
+          } catch (chunkError: any) {
+            // Check if it's a connection/timeout error
+            if (
+              chunkError?.code === 'P1001' || // Connection timeout
+              chunkError?.code === 'P1008' || // Transaction timeout
+              chunkError?.message?.includes('timeout') ||
+              chunkError?.message?.includes('connection') ||
+              chunkError?.message?.includes('ECONNRESET') ||
+              chunkError?.message?.includes('ETIMEDOUT')
+            ) {
+              connectionLost = true;
+              // Mark remaining contacts as not processed due to connection loss
+              // We don't add individual errors for each contact to avoid bloating the response
+              // Instead, we'll report the count in the report message
+              // Break out of loop - connection is lost
+              break;
+            } else {
+              // Other error - try individual inserts for this chunk
+              for (const data of chunk) {
+                try {
+                  await prisma.contact.upsert({
+                    where: { phone: data.phone },
+                    update: data,
+                    create: data
+                  });
+                  created++;
+                } catch (err: any) {
+                  const originalIndex = validContacts.findIndex(
+                    vc => vc.phone === data.phone
+                  );
+                  let errorMessage = 'Insert failed';
+                  let errorType = 'insert_error';
+                  if (err instanceof Error) {
+                    errorMessage = err.message
+                      .replace(/[A-Z]:\\[^\s]+/gi, '')
+                      .replace(/\/[^\s]+\.(ts|js)/g, '')
+                      .trim() || 'Insert failed';
+                    if (err.message.includes('Unique constraint') || err.message.includes('P2002')) {
+                      errorMessage = 'Phone number already exists in database';
+                      errorType = 'duplicate';
+                    }
+                  }
+                  errors.push({
+                    row: originalIndex >= 0 ? contacts.indexOf(validContacts[originalIndex]) + 1 : i + 1,
+                    error: errorMessage,
+                    type: errorType,
+                    field: 'phone'
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        report.created = created;
+        
+        // If connection was lost, add warning to report
+        if (connectionLost) {
+          const remainingContacts = dataToInsert.length - created;
+          const processedContacts = created;
+          const notProcessed = remainingContacts;
+          
+          // Recalculate error statistics including connection errors
+          const updatedErrorsByType: Record<string, number> = { ...errorsByType };
+          updatedErrorsByType['connection_error'] = (updatedErrorsByType['connection_error'] || 0) + notProcessed;
+          
+          report.failed = errors.length + notProcessed;
+          report.errorsByType = updatedErrorsByType;
+          
+          return {
+            created: processedContacts,
+            errors: [
+              ...errors,
+              {
+                row: -1, // Special marker for connection error summary
+                error: `Connection lost during upload. ${processedContacts} contacts uploaded successfully. ${notProcessed} contacts were not processed.`,
+                type: 'connection_error'
+              }
+            ],
+            report: {
+              ...report,
+              connectionLost: true,
+              partialUpload: true,
+              processedContacts,
+              notProcessedContacts: notProcessed,
+              message: `Connection lost during upload. ${processedContacts} contacts uploaded successfully. ${notProcessed} contacts were not processed. You can safely retry the upload - already uploaded contacts will be updated, not duplicated.`
+            }
+          };
         }
 
         return {
           created,
-          errors
+          errors,
+          report
         };
       }
     } catch (error) {
@@ -1072,6 +1277,7 @@ export class ContactService {
             vc => vc.phone === dataToInsert[i].phone
           );
           let errorMessage = 'Insert failed';
+          let errorType = 'insert_error';
           if (err instanceof Error) {
             // Sanitize error message
             errorMessage = err.message
@@ -1080,16 +1286,32 @@ export class ContactService {
               .trim() || 'Insert failed';
             // Check for duplicate phone error
             if (err.message.includes('Unique constraint') || err.message.includes('P2002')) {
-              errorMessage = 'Phone number already exists';
+              errorMessage = 'Phone number already exists in database';
+              errorType = 'duplicate';
             }
           }
           errors.push({
             row: originalIndex >= 0 ? contacts.indexOf(validContacts[originalIndex]) + 1 : i + 1,
-            error: errorMessage
+            error: errorMessage,
+            type: errorType,
+            field: 'phone'
           });
         }
       }
-      return { created, errors };
+      report.created = created;
+      report.failed = errors.length;
+      // Recalculate error statistics
+      const updatedErrorsByType: Record<string, number> = {};
+      const updatedErrorsByField: Record<string, number> = {};
+      errors.forEach(err => {
+        updatedErrorsByType[err.type] = (updatedErrorsByType[err.type] || 0) + 1;
+        if (err.field) {
+          updatedErrorsByField[err.field] = (updatedErrorsByField[err.field] || 0) + 1;
+        }
+      });
+      report.errorsByType = updatedErrorsByType;
+      report.errorsByField = updatedErrorsByField;
+      return { created, errors, report };
     }
   }
 }

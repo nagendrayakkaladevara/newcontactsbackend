@@ -131,3 +131,4 @@ const numRecords = 150;
 console.log(`🚀 Generating ${numRecords} Indian contact records...`);
 generateCSV(numRecords);
 
+

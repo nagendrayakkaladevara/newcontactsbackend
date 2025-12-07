@@ -23,13 +23,27 @@ Production: https://your-api-domain.com
 
 ## Authentication
 
-**⚠️ Note:** Currently, the API does not implement authentication. It is recommended to add authentication middleware (JWT, API keys, etc.) before deploying to production.
+**✅ Authentication is Required:** This API requires **BOTH** API Key Authentication AND HTTP Basic Authentication for all protected endpoints.
 
-**Recommended Implementation:**
-- Add JWT token-based authentication
-- Implement role-based access control (RBAC)
-- Use API keys for service-to-service communication
-- Add rate limiting for admin endpoints
+**Required Headers:**
+- `X-API-Key: <your-api-key>` (or `?apiKey=<your-api-key>` query parameter)
+- `Authorization: Basic <base64(username:password)>`
+
+**Setup:**
+1. Set `API_KEY` in your `.env` file
+2. Set `BASIC_AUTH_USERNAME` and `BASIC_AUTH_PASSWORD` in your `.env` file
+3. Include both headers in every request
+
+**For detailed authentication setup, see:**
+- `API_KEY_AUTH_GUIDE.md` - Complete authentication guide with examples
+- `POSTMAN_AUTH_SETUP.md` - Step-by-step Postman setup instructions
+
+**Example:**
+```bash
+curl -X GET http://localhost:3000/api/contacts \
+  -H "X-API-Key: your-api-key-here" \
+  -u username:password
+```
 
 ---
 
@@ -249,7 +263,14 @@ The API accepts Excel files with the same column structure. Column names are cas
   "message": "Bulk upload completed. 3400 contacts created.",
   "created": 3400,
   "errors": [],
-  "hasErrors": false
+  "hasErrors": false,
+  "report": {
+    "total": 3400,
+    "created": 3400,
+    "failed": 0,
+    "errorsByType": {},
+    "errorsByField": {}
+  }
 }
 ```
 
@@ -262,23 +283,77 @@ The API accepts Excel files with the same column structure. Column names are cas
   "errors": [
     {
       "row": 10,
-      "error": "Invalid phone number format"
+      "error": "phone: Invalid format",
+      "type": "invalid_string",
+      "field": "phone"
     },
     {
       "row": 25,
-      "error": "Duplicate phone number in CSV: +1234567890"
+      "error": "Duplicate phone number in CSV: +1234567890",
+      "type": "duplicate",
+      "field": "phone"
     },
     {
       "row": 50,
-      "error": "Name is required"
+      "error": "name: Value is required",
+      "type": "too_small",
+      "field": "name"
     }
   ],
-  "hasErrors": true
+  "hasErrors": true,
+  "report": {
+    "total": 3400,
+    "created": 3395,
+    "failed": 5,
+    "errorsByType": {
+      "invalid_string": 2,
+      "duplicate": 2,
+      "too_small": 1
+    },
+    "errorsByField": {
+      "phone": 4,
+      "name": 1
+    }
+  }
+}
+```
+
+**Response (206 Partial Content) - Connection Lost:**
+```json
+{
+  "success": false,
+  "message": "Connection lost during upload. 1500 contacts uploaded successfully. 1700 contacts were not processed. You can safely retry the upload - already uploaded contacts will be updated, not duplicated.",
+  "created": 1500,
+  "hasErrors": true,
+  "partialUpload": true,
+  "connectionLost": true,
+  "errors": [
+    {
+      "row": -1,
+      "error": "Connection lost during upload. 1500 contacts uploaded successfully. 1700 contacts were not processed.",
+      "type": "connection_error"
+    }
+  ],
+  "report": {
+    "total": 3200,
+    "created": 1500,
+    "failed": 1700,
+    "errorsByType": {
+      "connection_error": 1700
+    },
+    "errorsByField": {},
+    "connectionLost": true,
+    "partialUpload": true,
+    "processedContacts": 1500,
+    "notProcessedContacts": 1700,
+    "message": "Connection lost during upload. 1500 contacts uploaded successfully. 1700 contacts were not processed. You can safely retry the upload - already uploaded contacts will be updated, not duplicated."
+  }
 }
 ```
 
 **Error Responses:**
 - `400 Bad Request`: No file uploaded, invalid file format, or invalid data
+- `206 Partial Content`: Connection lost during upload (partial success)
 
 **Example cURL:**
 ```bash
@@ -317,16 +392,45 @@ fileInput.addEventListener('change', async (e) => {
 ```
 
 **Performance Notes:**
-- Processes 3400 records in 1-3 seconds
+- Processes contacts in chunks of 500 for optimal performance
+- Large uploads (3000+ contacts) may take 4-5 minutes
 - Maximum recommended file size: 10MB
 - Large files are processed efficiently using batch operations
+- Each chunk has a 30-second timeout to prevent hanging requests
+- Connection loss is detected and reported gracefully
 
 **File Format Requirements:**
 - CSV files must have headers: `name`, `phone`, `bloodGroup`, `lobby`, `designation`
 - Excel files should follow the same column structure
-- Phone numbers must be in international format (e.g., `+1234567890`)
+- Phone numbers: Any length (1-15 digits), supports formats like `+1234567890`, `1234567890`, etc.
 - Name and phone are required fields
 - Other fields (bloodGroup, lobby, designation) are optional
+
+**Error Report Structure:**
+The response includes a detailed `report` object with:
+- `total`: Total contacts in the file
+- `created`: Successfully created contacts
+- `failed`: Contacts that failed validation or processing
+- `errorsByType`: Count of errors grouped by error type (duplicate, invalid_string, etc.)
+- `errorsByField`: Count of errors grouped by field (phone, name, etc.)
+- `connectionLost`: Boolean indicating if connection was lost during upload
+- `partialUpload`: Boolean indicating if upload was partially completed
+- `processedContacts`: Number of contacts processed before connection loss (if applicable)
+- `notProcessedContacts`: Number of contacts not processed due to connection loss (if applicable)
+
+**Error Object Structure:**
+Each error in the `errors` array contains:
+- `row`: Row number in the file (1-indexed)
+- `error`: Human-readable error message
+- `type`: Error type (duplicate, invalid_string, too_small, connection_error, etc.)
+- `field`: Field name that caused the error (optional)
+
+**Connection Loss Handling:**
+- If connection is lost during upload, you'll receive a `206 Partial Content` status
+- The response shows how many contacts were successfully uploaded
+- You can safely retry the upload - existing contacts will be updated, not duplicated
+- The upload uses `upsert` operations, making retries idempotent
+- See `CONNECTION_LOSS_HANDLING.md` for detailed information
 
 ---
 
@@ -353,7 +457,9 @@ All admin API endpoints follow a consistent error response format:
 
 - `200 OK`: Successful GET, PUT, DELETE operations
 - `201 Created`: Successful POST operations (create)
+- `206 Partial Content`: Partial success (e.g., connection lost during bulk upload)
 - `400 Bad Request`: Validation errors, invalid input
+- `401 Unauthorized`: Missing or invalid authentication
 - `404 Not Found`: Resource not found
 - `409 Conflict`: Duplicate resource (e.g., phone number already exists)
 - `500 Internal Server Error`: Server-side errors
@@ -435,12 +541,14 @@ All admin API endpoints follow a consistent error response format:
 - Handle large file uploads with appropriate timeout settings
 
 ### 5. Security
-- **⚠️ Critical:** Implement authentication before production deployment
+- **✅ Authentication is implemented:** Both API Key and Basic Auth are required
 - Use HTTPS in production
 - Validate and sanitize all user inputs
 - Implement CORS properly
-- Use environment variables for sensitive configuration
+- Use environment variables for sensitive configuration (API keys, passwords)
 - Regularly update dependencies
+- Never commit `.env` file with credentials
+- Rotate API keys and passwords periodically
 
 ### 6. Data Management
 - Regular database backups
@@ -458,11 +566,14 @@ All admin API endpoints follow a consistent error response format:
 
 ### 8. Bulk Upload Best Practices
 - Validate CSV/Excel format before upload
-- Ensure phone numbers are in correct format
-- Remove duplicate entries from source file
-- Check file size limits
+- Ensure phone numbers are in correct format (1-15 digits, supports + prefix)
+- Remove duplicate entries from source file (or let the system handle them)
+- Check file size limits (max 10MB recommended)
 - Verify column headers match expected format
 - Test with a small sample (10-20 records) first
+- Monitor for connection loss - check for `206 Partial Content` status
+- If connection is lost, retry the upload - it's safe and idempotent
+- Review the `report` object for detailed statistics about the upload
 
 ---
 
@@ -581,8 +692,9 @@ const deleteAllContacts = async () => {
 1. **Bulk upload fails with "Invalid CSV data format"**
    - Ensure CSV has proper headers: name, phone, bloodGroup, lobby, designation
    - Check for empty rows or malformed data
-   - Verify phone number formats (must include country code, e.g., +1234567890)
+   - Verify phone number formats (any length 1-15 digits, supports + prefix)
    - Ensure file is saved as UTF-8 encoding
+   - Check the `errors` array in response for specific row-level issues
 
 2. **Delete all contacts returns 400 error**
    - Ensure `confirm=DELETE_ALL` query parameter is exactly as specified (case-sensitive)
@@ -595,16 +707,31 @@ const deleteAllContacts = async () => {
    - Check that the ID format is valid UUID
 
 4. **Bulk upload processes but shows errors**
-   - Review the `errors` array in the response
+   - Review the `errors` array in the response for detailed error information
+   - Check the `report.errorsByType` to see error categories
+   - Check the `report.errorsByField` to see which fields have issues
    - Check specific row numbers mentioned in errors
    - Fix data issues in source file and re-upload
    - Common issues: invalid phone format, missing required fields, duplicate phone numbers
 
-5. **Excel file not processing correctly**
+5. **Connection lost during upload (206 status)**
+   - Check the `report.processedContacts` to see how many were uploaded
+   - Check the `report.notProcessedContacts` to see how many remain
+   - Simply retry the upload - it's safe to do so
+   - Already uploaded contacts will be updated, not duplicated
+   - See `CONNECTION_LOSS_HANDLING.md` for more details
+
+6. **Excel file not processing correctly**
    - Ensure column headers match expected format (case-insensitive)
    - Check that phone numbers are not stored as formulas
    - Verify file is saved in .xlsx or .xls format
    - Try converting to CSV if issues persist
+
+7. **Authentication errors (401 Unauthorized)**
+   - Ensure both `X-API-Key` header and `Authorization: Basic` header are included
+   - Verify API key matches `API_KEY` in `.env` file
+   - Verify Basic Auth credentials match `BASIC_AUTH_USERNAME` and `BASIC_AUTH_PASSWORD`
+   - See `API_KEY_AUTH_GUIDE.md` and `POSTMAN_AUTH_SETUP.md` for setup instructions
 
 ### Getting Help
 
@@ -617,9 +744,24 @@ const deleteAllContacts = async () => {
 
 ## Version Information
 
-- **API Version:** 1.0.2
+- **API Version:** 1.1.0
 - **Last Updated:** 2025-01-25
-- **Documentation Version:** 1.0.0
+- **Documentation Version:** 1.1.0
+
+## Recent Updates
+
+### v1.1.0 (2025-01-25)
+- ✅ Improved error reporting with structured error format (type, field)
+- ✅ Removed 10-digit minimum requirement for phone numbers
+- ✅ Added connection loss detection and handling
+- ✅ Added detailed upload report with statistics
+- ✅ Added partial upload support (206 status)
+- ✅ Made bulk uploads idempotent (safe to retry)
+
+### Related Documentation
+- `API_KEY_AUTH_GUIDE.md` - Complete authentication guide
+- `POSTMAN_AUTH_SETUP.md` - Postman setup instructions
+- `CONNECTION_LOSS_HANDLING.md` - Connection loss handling details
 
 ---
 

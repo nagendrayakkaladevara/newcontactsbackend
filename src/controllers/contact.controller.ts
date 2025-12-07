@@ -99,6 +99,23 @@ export class ContactController {
   }
 
   /**
+   * Get all contacts without pagination
+   * GET /api/contacts/all
+   */
+  async getAllContactsWithoutPagination(req: Request, res: Response, next: NextFunction) {
+    try {
+      const contacts = await contactService.getAllContactsWithoutPagination();
+      res.json({
+        success: true,
+        data: contacts,
+        count: contacts.length
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Search contacts by name
    * GET /api/contacts/search/name?query=ra&page=1&limit=50
    */
@@ -420,12 +437,18 @@ export class ContactController {
 
       const result = await contactService.bulkUploadContacts(csvData, replaceAll);
       
-      res.status(201).json({
-        success: true,
-        message: `Bulk upload completed. ${result.created} contacts created.`,
+      // Determine status code based on result
+      const statusCode = result.report.connectionLost ? 206 : 201; // 206 = Partial Content
+      
+      res.status(statusCode).json({
+        success: !result.report.connectionLost,
+        message: result.report.message || `Bulk upload completed. ${result.created} contacts created.`,
         created: result.created,
         errors: result.errors,
-        hasErrors: result.errors.length > 0
+        hasErrors: result.errors.length > 0,
+        partialUpload: result.report.partialUpload || false,
+        connectionLost: result.report.connectionLost || false,
+        report: result.report
       });
     } catch (error) {
       next(error);

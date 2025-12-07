@@ -159,3 +159,4 @@ If you continue to experience issues:
 3. Test database connection separately
 4. Review Prisma documentation for serverless: https://www.prisma.io/docs/guides/deployment/deployment-guides/deploying-to-vercel
 
+
