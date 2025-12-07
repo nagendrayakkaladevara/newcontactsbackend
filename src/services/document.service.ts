@@ -3,6 +3,37 @@ import { createDocumentSchema } from '../validators/document.validator';
 import { AppError } from '../middleware/errorHandler';
 import { z } from 'zod';
 
+/**
+ * Decode HTML entities in URL strings
+ * This fixes URLs that were previously HTML-encoded by sanitization
+ */
+function decodeHtmlEntities(str: string): string {
+  if (!str || typeof str !== 'string') return str;
+  
+  // Decode common HTML entities
+  return str
+    .replace(/&#x2F;/g, '/')
+    .replace(/&#x3A;/g, ':')
+    .replace(/&#x3F;/g, '?')
+    .replace(/&#x3D;/g, '=')
+    .replace(/&#x26;/g, '&')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+/**
+ * Decode HTML entities in document link fields
+ */
+function decodeDocumentLink(document: Document): Document {
+  if (document.link) {
+    document.link = decodeHtmlEntities(document.link);
+  }
+  return document;
+}
+
 // Singleton pattern for Prisma Client
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -33,13 +64,16 @@ export class DocumentService {
   async createDocument(data: z.infer<typeof createDocumentSchema>): Promise<Document> {
     const validated = createDocumentSchema.parse(data);
     
-    return prisma.document.create({
+    const document = await prisma.document.create({
       data: {
         title: validated.title,
         link: validated.link,
         uploadedBy: validated.uploadedBy || null
       }
     });
+    
+    // Decode HTML entities in case any were encoded (shouldn't happen with new sanitization)
+    return decodeDocumentLink(document);
   }
 
   /**
@@ -54,7 +88,7 @@ export class DocumentService {
       throw new AppError('Document not found', 404, 'NOT_FOUND');
     }
 
-    return prisma.document.update({
+    const document = await prisma.document.update({
       where: { id },
       data: {
         ...(data.title && { title: data.title }),
@@ -62,6 +96,9 @@ export class DocumentService {
         ...(data.uploadedBy !== undefined && { uploadedBy: data.uploadedBy || null })
       }
     });
+    
+    // Decode HTML entities in case any were encoded (shouldn't happen with new sanitization)
+    return decodeDocumentLink(document);
   }
 
   /**
@@ -94,8 +131,11 @@ export class DocumentService {
       prisma.document.count()
     ]);
 
+    // Decode HTML entities in URLs for existing encoded data
+    const decodedData = data.map(doc => decodeDocumentLink(doc));
+
     return {
-      data,
+      data: decodedData,
       pagination: {
         page,
         limit,
@@ -109,16 +149,22 @@ export class DocumentService {
    * Get all documents without pagination
    */
   async getAllDocumentsWithoutPagination(): Promise<Document[]> {
-    return prisma.document.findMany({
+    const documents = await prisma.document.findMany({
       orderBy: { createdAt: 'desc' }
     });
+    // Decode HTML entities in URLs for existing encoded data
+    return documents.map(doc => decodeDocumentLink(doc));
   }
 
   /**
    * Get a single document by ID
    */
   async getDocumentById(id: string): Promise<Document | null> {
-    return prisma.document.findUnique({ where: { id } });
+    const document = await prisma.document.findUnique({ where: { id } });
+    if (document) {
+      return decodeDocumentLink(document);
+    }
+    return null;
   }
 
   /**
@@ -153,8 +199,11 @@ export class DocumentService {
       })
     ]);
 
+    // Decode HTML entities in URLs for existing encoded data
+    const decodedData = data.map(doc => decodeDocumentLink(doc));
+
     return {
-      data,
+      data: decodedData,
       pagination: {
         page,
         limit,

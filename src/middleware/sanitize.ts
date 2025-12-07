@@ -61,34 +61,62 @@ export const sanitizeInput = (req: Request, res: Response, next: NextFunction) =
 /**
  * Recursively sanitize object properties
  */
-function sanitizeObject(obj: any): any {
+function sanitizeObject(obj: any, parentKey?: string): any {
   if (Array.isArray(obj)) {
-    return obj.map(item => sanitizeValue(item));
+    return obj.map(item => sanitizeValue(item, parentKey));
   }
 
   if (obj && typeof obj === 'object') {
     const sanitized: any = {};
     for (const key in obj) {
       if (Object.prototype.hasOwnProperty.call(obj, key)) {
-        sanitized[key] = sanitizeValue(obj[key]);
+        sanitized[key] = sanitizeValue(obj[key], key);
       }
     }
     return sanitized;
   }
 
-  return sanitizeValue(obj);
+  return sanitizeValue(obj, parentKey);
+}
+
+/**
+ * Check if a field name indicates it's a URL field
+ */
+function isUrlField(fieldName: string): boolean {
+  if (!fieldName) return false;
+  const lowerField = fieldName.toLowerCase();
+  return lowerField === 'link' || 
+         lowerField === 'url' || 
+         lowerField === 'doc_link' ||
+         lowerField === 'doclink' ||
+         lowerField.endsWith('_link') ||
+         lowerField.endsWith('_url') ||
+         lowerField.endsWith('link') ||
+         lowerField.endsWith('url');
 }
 
 /**
  * Sanitize a single value
  */
-function sanitizeValue(value: any): any {
+function sanitizeValue(value: any, fieldName?: string): any {
   if (value === null || value === undefined) {
     return value;
   }
 
   if (typeof value === 'string') {
-    // Remove HTML tags and escape special characters
+    // For URL fields, validate but don't escape (URLs are already validated by Zod)
+    if (fieldName && isUrlField(fieldName)) {
+      // Just trim and validate it's a proper URL format
+      let sanitized = value.trim();
+      // Basic URL validation - if it looks like a URL, don't escape it
+      if (validator.isURL(sanitized, { require_protocol: false }) || sanitized.startsWith('http://') || sanitized.startsWith('https://')) {
+        return sanitized;
+      }
+      // If it's not a valid URL, still don't escape (let Zod validation catch it)
+      return sanitized;
+    }
+    
+    // For non-URL fields, escape HTML entities
     let sanitized = validator.escape(value);
     // Remove any remaining HTML tags
     sanitized = validator.stripLow(sanitized, true);
@@ -102,11 +130,11 @@ function sanitizeValue(value: any): any {
   }
 
   if (Array.isArray(value)) {
-    return value.map(item => sanitizeValue(item));
+    return value.map(item => sanitizeValue(item, fieldName));
   }
 
   if (typeof value === 'object') {
-    return sanitizeObject(value);
+    return sanitizeObject(value, fieldName);
   }
 
   return value;
