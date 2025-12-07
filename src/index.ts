@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import contactRoutes from './routes/contact.routes';
 import analyticsRoutes from './routes/analytics.routes';
+import documentRoutes from './routes/document.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { requestId } from './middleware/requestId';
 import { sanitizeInput } from './middleware/sanitize';
@@ -125,6 +126,7 @@ app.get('/api/csrf-token', getCsrfToken);
 // Protected routes (require API key authentication)
 app.use('/api/contacts', contactRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/documents', documentRoutes);
 
 // 404 handler (must be before error handler)
 app.use((req: express.Request, res: express.Response) => {
