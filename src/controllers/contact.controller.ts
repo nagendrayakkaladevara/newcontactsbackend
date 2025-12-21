@@ -137,25 +137,22 @@ export class ContactController {
   }
 
   /**
-   * Search contact by phone
-   * GET /api/contacts/search/phone?phone=1234567890
+   * Search contacts by phone (user-friendly like mobile contact search)
+   * Supports partial matching with phone number normalization
+   * GET /api/contacts/search/phone?query=123
    */
   async searchByPhone(req: Request, res: Response, next: NextFunction) {
     try {
-      const { phone } = req.query;
-      if (!phone || typeof phone !== 'string') {
-        throw new AppError('Phone number is required');
+      const { query } = req.query;
+      if (!query || typeof query !== 'string') {
+        throw new AppError('Search query is required', 400);
       }
-      const contact = await contactService.searchByPhone(phone);
-      if (!contact) {
-        return res.status(404).json({
-          success: false,
-          message: 'Contact not found'
-        });
-      }
+      
+      const contacts = await contactService.searchByPhone(query);
       res.json({
         success: true,
-        data: contact
+        data: contacts,
+        count: contacts.length
       });
     } catch (error) {
       next(error);

@@ -212,11 +212,34 @@ export class ContactService {
   }
 
   /**
-   * Search contact by phone (exact match)
+   * Search contacts by phone (partial match, user-friendly like mobile contact search)
+   * Normalizes phone numbers by removing formatting characters for better matching
    */
-  async searchByPhone(phone: string): Promise<Contact | null> {
-    return prisma.contact.findUnique({
-      where: { phone }
+  async searchByPhone(query: string): Promise<Contact[]> {
+    // Normalize query: remove spaces, dashes, and other formatting characters for phone search
+    const normalizedQuery = query.replace(/[\s\-\(\)\.]/g, '');
+    
+    // Search phone with both normalized and original query to handle different formats
+    const whereClause = {
+      OR: [
+        {
+          phone: {
+            contains: normalizedQuery,
+            mode: 'insensitive' as const
+          }
+        },
+        {
+          phone: {
+            contains: query,
+            mode: 'insensitive' as const
+          }
+        }
+      ]
+    };
+
+    return prisma.contact.findMany({
+      where: whereClause,
+      orderBy: { phone: 'asc' }
     });
   }
 
