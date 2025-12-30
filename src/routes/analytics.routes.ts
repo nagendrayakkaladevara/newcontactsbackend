@@ -16,6 +16,7 @@ router.get('/growth', analyticsController.getContactsGrowth.bind(analyticsContro
 router.get('/recent', analyticsController.getRecentContacts.bind(analyticsController));
 router.post('/visits', analyticsController.incrementVisitCount.bind(analyticsController));
 router.get('/visits', analyticsController.getVisitCount.bind(analyticsController));
+router.get('/visits/history', analyticsController.getVisitHistory.bind(analyticsController));
 
 export default router;
 

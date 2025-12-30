@@ -148,6 +148,33 @@ export class AnalyticsController {
       next(error);
     }
   }
+
+  /**
+   * Get visit history for charting
+   * GET /api/analytics/visits/history?days=30
+   */
+  async getVisitHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { days } = req.query;
+      const daysNum = days ? parseInt(String(days), 10) : 30;
+
+      if (isNaN(daysNum) || daysNum < 1 || daysNum > 365) {
+        throw new AppError('Days must be between 1 and 365', 400, 'INVALID_DAYS');
+      }
+
+      const history = await contactService.getVisitHistory(daysNum);
+      const totalVisits = await contactService.getVisitCount();
+
+      res.json({
+        success: true,
+        data: history,
+        period: `${daysNum} days`,
+        totalVisits
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const analyticsController = new AnalyticsController();

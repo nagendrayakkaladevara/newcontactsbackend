@@ -33,6 +33,17 @@ model VisitCount {
   @@map("visit_count")
 }
 
+model VisitHistory {
+  id        String   @id @default(uuid())
+  date      DateTime @default(now()) @db.Date
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([date])
+  @@index([date])
+  @@map("visit_history")
+}
+
 model Document {
   id          String   @id @default(uuid())
   title       String

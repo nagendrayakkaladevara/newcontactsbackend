@@ -933,6 +933,7 @@ export class ContactService {
 
   /**
    * Analytics: Increment and get visit count (thread-safe)
+   * Also records daily visit history for charting
    */
   async incrementVisitCount(): Promise<number> {
     try {
@@ -951,6 +952,12 @@ export class ContactService {
         }
       });
 
+      // Record daily visit history (non-blocking, won't break if it fails)
+      this.recordDailyVisitHistory().catch(err => {
+        console.error('Failed to record visit history:', err);
+        // Don't throw - this is a non-critical operation
+      });
+
       return result.count;
     } catch (error) {
       // If upsert fails, try to create or increment separately
@@ -964,6 +971,12 @@ export class ContactService {
             }
           }
         });
+        
+        // Record daily visit history (non-blocking)
+        this.recordDailyVisitHistory().catch(err => {
+          console.error('Failed to record visit history:', err);
+        });
+        
         return updated.count;
       } catch (updateError) {
         // If update fails (record doesn't exist), create it
@@ -973,8 +986,43 @@ export class ContactService {
             count: 1
           }
         });
+        
+        // Record daily visit history (non-blocking)
+        this.recordDailyVisitHistory().catch(err => {
+          console.error('Failed to record visit history:', err);
+        });
+        
         return created.count;
       }
+    }
+  }
+
+  /**
+   * Record daily visit history (internal helper method)
+   * Non-blocking - failures won't affect the main increment operation
+   */
+  private async recordDailyVisitHistory(): Promise<void> {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Set to start of day
+
+      // Upsert today's visit count (increment if exists, create if not)
+      await prisma.visitHistory.upsert({
+        where: { date: today },
+        update: {
+          count: {
+            increment: 1
+          }
+        },
+        create: {
+          date: today,
+          count: 1
+        }
+      });
+    } catch (error) {
+      // Silently fail - this is a non-critical operation
+      // The main visit count increment should still succeed
+      console.error('Error recording visit history:', error);
     }
   }
 
@@ -987,6 +1035,54 @@ export class ContactService {
     });
 
     return visitCount?.count || 0;
+  }
+
+  /**
+   * Analytics: Get visit history for charting
+   * Returns daily visit counts for the specified number of days
+   */
+  async getVisitHistory(days: number = 30): Promise<Array<{ date: string; count: number }>> {
+    // Calculate start date
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Get all visit history records from start date to today
+    const history = await prisma.visitHistory.findMany({
+      where: {
+        date: {
+          gte: startDate
+        }
+      },
+      orderBy: {
+        date: 'asc'
+      }
+    });
+
+    // Create a map of existing records for quick lookup
+    const historyMap = new Map<string, number>();
+    history.forEach(record => {
+      const dateStr = record.date.toISOString().split('T')[0];
+      historyMap.set(dateStr, record.count);
+    });
+
+    // Fill in missing dates with 0 and format response
+    const result: Array<{ date: string; count: number }> = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i < days; i++) {
+      const currentDate = new Date(startDate);
+      currentDate.setDate(startDate.getDate() + i);
+      const dateStr = currentDate.toISOString().split('T')[0];
+
+      result.push({
+        date: dateStr,
+        count: historyMap.get(dateStr) || 0
+      });
+    }
+
+    return result;
   }
 
   /**
